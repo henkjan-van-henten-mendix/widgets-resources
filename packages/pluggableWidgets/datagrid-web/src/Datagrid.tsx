@@ -89,6 +89,7 @@ export default function Datagrid(props: DatagridContainerProps): ReactElement {
                 },
                 [props.columns]
             )}
+            settings={props.configurationAttribute}
         />
     );
 }

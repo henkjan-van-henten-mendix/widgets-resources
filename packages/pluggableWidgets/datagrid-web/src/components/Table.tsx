@@ -1,8 +1,20 @@
-import { createElement, CSSProperties, ReactElement, ReactNode, useMemo, useState } from "react";
+import {
+    createElement,
+    CSSProperties,
+    Dispatch,
+    ReactElement,
+    ReactNode,
+    SetStateAction,
+    useCallback,
+    useEffect,
+    useMemo,
+    useState
+} from "react";
 import { ColumnSelector } from "./ColumnSelector";
 import { Pagination } from "./Pagination";
 import { Header } from "./Header";
 import { InfiniteBody } from "./InfiniteBody";
+import { EditableValue, ValueStatus } from "mendix";
 import {
     ColumnInterface,
     ColumnWithStrictAccessor,
@@ -20,6 +32,7 @@ import {
     useTable
 } from "react-table";
 import { ColumnsPreviewType, ColumnsType, FilterMethodEnum } from "../../typings/DatagridProps";
+import deepEqual from "deep-equal";
 
 export type TableColumn = Omit<ColumnsType | ColumnsPreviewType, "content" | "attribute">;
 
@@ -47,6 +60,7 @@ export interface TableProps<T> {
     valueForSort: (value: T, columnIndex: number) => string | BigJs.Big | boolean | Date | undefined;
     filterRenderer: (renderWrapper: (children: ReactNode) => ReactElement, columnIndex: number) => ReactElement;
     filterMethod: FilterMethodEnum;
+    settings?: EditableValue<string>;
 }
 
 export function Table<T>(props: TableProps<T>): ReactElement {
@@ -54,15 +68,46 @@ export function Table<T>(props: TableProps<T>): ReactElement {
     const isInfinite = !props.paging && !isSortingOrFiltering;
     const [dragOver, setDragOver] = useState("");
     const [columnSelectorWidth, setColumnSelectorWidth] = useState(0);
-    const [columnOrder, setColumnOrder] = useState<Array<IdType<object>>>([]);
-    const [hiddenColumns, setHiddenColumns] = useState<Array<IdType<object>>>(
-        (props.columns
-            .map((c, i) => (c.hidable === "hidden" ? i.toString() : undefined))
-            .filter(Boolean) as string[]) ?? []
-    );
+    const filteredColumns = props.columns.map((c, index) => ({
+        header: typeof c.header === "object" ? c.header.value : c.header,
+        id: index.toString(),
+        hidable: c.hidable
+    })) as Array<{ header: string; id: string; hidable: string }>;
+    const [
+        columnOrder,
+        setColumnOrder,
+        hiddenColumns,
+        setHiddenColumns,
+        sortBy,
+        setSortBy,
+        filters,
+        setFilters
+    ] = useSettings(props.settings, filteredColumns);
     const [paginationIndex, setPaginationIndex] = useState<number>(0);
-    const [sortBy, setSortBy] = useState<Array<SortingRule<object>>>([]);
-    const [filters, setFilters] = useState<Filters<object>>([]);
+
+    console.warn("Order: ", columnOrder);
+    console.warn("Hidden: ", hiddenColumns);
+    console.warn("Sort: ", sortBy);
+    console.warn("Filters: ", filters);
+
+    useEffect(() => {
+        if (props.settings && props.settings.status === ValueStatus.Available) {
+            const newSettings = JSON.stringify(
+                createSettings(
+                    {
+                        columnOrder,
+                        hiddenColumns,
+                        sortBy,
+                        filters
+                    },
+                    filteredColumns
+                ) ?? []
+            );
+            if (!deepEqual(props.settings.value, newSettings, { strict: true })) {
+                props.settings.setValue(newSettings);
+            }
+        }
+    }, [columnOrder, hiddenColumns, sortBy, filters]);
 
     const filterTypes = useMemo(
         () => ({
@@ -315,4 +360,103 @@ export function Table<T>(props: TableProps<T>): ReactElement {
             </div>
         </div>
     );
+}
+
+interface Settings {
+    columnOrder: Array<IdType<object>>;
+    hiddenColumns: Array<IdType<object>>;
+    sortBy: Array<SortingRule<object>>;
+    filters: Filters<object>;
+}
+
+interface PersistedSettings {
+    column: string;
+    sort: boolean;
+    sortMethod: "asc" | "desc";
+    filter: string;
+    hidden: boolean;
+    order: number;
+}
+
+function createSettings(
+    { columnOrder, hiddenColumns, sortBy, filters }: Settings,
+    columns: Array<{ header: string; id: string }>
+): PersistedSettings[] {
+    return columns.map(column => ({
+        column: column.header,
+        sort: !!sortBy.find(s => s.id === column.id),
+        sortMethod: sortBy.find(s => s.id === column.id)?.desc ? "desc" : "asc",
+        filter: filters.find(f => f.id === column.id)?.value ?? "",
+        hidden: !!hiddenColumns.find(h => h === column.id),
+        order: columnOrder.findIndex(o => o === column.id)
+    }));
+}
+
+declare type Option<T> = T | undefined;
+
+function useSettings(
+    settings: Option<EditableValue<string>>,
+    columns: Array<{ header: string; id: string; hidable: string }>
+): [
+    Array<IdType<object>>,
+    Dispatch<SetStateAction<Array<IdType<object>>>>,
+    Array<IdType<object>>,
+    Dispatch<SetStateAction<Array<IdType<object>>>>,
+    Array<SortingRule<object>>,
+    Dispatch<SetStateAction<Array<SortingRule<object>>>>,
+    Filters<object>,
+    Dispatch<SetStateAction<Filters<object>>>
+] {
+    let newSettings: Settings = { columnOrder: [], hiddenColumns: [], sortBy: [], filters: [] };
+    const [columnOrder, setColumnOrder] = useState<Array<IdType<object>>>(newSettings.columnOrder);
+    const [hiddenColumns, setHiddenColumns] = useState<Array<IdType<object>>>(
+        (newSettings.hiddenColumns.length > 0
+            ? newSettings.hiddenColumns
+            : (columns
+                  .map((c, i) => (c.hidable === "hidden" ? i.toString() : undefined))
+                  .filter(Boolean) as string[])) ?? []
+    );
+    const [sortBy, setSortBy] = useState<Array<SortingRule<object>>>(newSettings.sortBy);
+    const [filters, setFilters] = useState<Filters<object>>(newSettings.filters);
+
+    const extractSettings = useCallback(
+        (settings: PersistedSettings[]): Settings => {
+            return {
+                columnOrder: settings
+                    .sort((a, b) => a.order - b.order)
+                    .map(s => columns.find(c => c.header === s.column)?.id || ""),
+                hiddenColumns: settings
+                    .filter(s => s.hidden)
+                    .map(s => columns.find(c => c.header === s.column)?.id || ""),
+                sortBy: settings
+                    .filter(s => s.sort)
+                    .map(s => ({
+                        id: columns.find(c => c.header === s.column)?.id || "",
+                        desc: s.sortMethod === "desc"
+                    })),
+                filters: settings
+                    .filter(s => s.filter)
+                    .map(s => ({ id: columns.find(c => c.header === s.column)?.id || "", value: s.filter }))
+            };
+        },
+        [settings]
+    );
+
+    useEffect(() => {
+        if (settings && settings.status === ValueStatus.Available && settings.value) {
+            newSettings = extractSettings(JSON.parse(settings.value) as PersistedSettings[]);
+            setColumnOrder(newSettings.columnOrder);
+            setHiddenColumns(newSettings.hiddenColumns);
+            setSortBy(newSettings.sortBy);
+            setFilters(newSettings.filters);
+            console.warn("New settings", newSettings);
+        }
+    }, [settings]);
+
+    console.warn("I Order: ", columnOrder);
+    console.warn("I Hidden: ", hiddenColumns);
+    console.warn("I Sort: ", sortBy);
+    console.warn("I Filters: ", filters);
+
+    return [columnOrder, setColumnOrder, hiddenColumns, setHiddenColumns, sortBy, setSortBy, filters, setFilters];
 }

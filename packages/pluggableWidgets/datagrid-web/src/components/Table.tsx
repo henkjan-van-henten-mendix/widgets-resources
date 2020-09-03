@@ -146,7 +146,7 @@ export function Table<T>(props: TableProps<T>): ReactElement {
                         index
                     )
             })),
-        [props.columns]
+        [props.columns, props.cellRenderer, props.columnsResizable, props.filterRenderer, props.valueForSort]
     );
 
     const defaultColumn: ColumnInterface<{ item: T }> = useMemo(
@@ -187,7 +187,7 @@ export function Table<T>(props: TableProps<T>): ReactElement {
                   }
                 : {})
         }),
-        [props.columns]
+        [props.columnsResizable]
     );
 
     const {
@@ -225,6 +225,8 @@ export function Table<T>(props: TableProps<T>): ReactElement {
             },
             disableMultiSort: true,
             autoResetSortBy: false,
+            autoResetPage: false,
+            autoResetFilters: false,
             useControlledState: state =>
                 useMemo(
                     () => ({

@@ -175,6 +175,7 @@ export function Table<T>(props: TableProps<T>): ReactElement {
                                 }
                                 return [...prev];
                             });
+                            setPaginationIndex(0);
                         }}
                     />
                 </div>

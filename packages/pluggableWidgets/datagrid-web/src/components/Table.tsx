@@ -130,21 +130,7 @@ export function Table<T>(props: TableProps<T>): ReactElement {
                         return (valueA as Date).getTime() - (valueB as Date).getTime();
                     }
                     return Number(valueA) - Number(valueB);
-                },
-                Cell: ({ cell, value }) =>
-                    props.cellRenderer(
-                        (children: ReactNode) => (
-                            <div
-                                {...cell.getCellProps()}
-                                {...(!props.columnsResizable ? { style: { flex: "1 1 0px" } } : {})}
-                                className="td"
-                            >
-                                {children}
-                            </div>
-                        ),
-                        value,
-                        index
-                    )
+                }
             })),
         [props.columns, props.cellRenderer, props.columnsResizable, props.filterRenderer, props.valueForSort]
     );
@@ -320,9 +306,24 @@ export function Table<T>(props: TableProps<T>): ReactElement {
                 >
                     {(isSortingOrFiltering && props.paging ? rowsPagination : rows).map((row, index) => {
                         prepareRow(row);
+
                         return (
                             <div {...row.getRowProps()} key={`row_${index}`} className="tr">
-                                {row.cells.map(cell => cell.render("Cell"))}
+                                {row.cells.map(cell =>
+                                    props.cellRenderer(
+                                        (children: ReactNode) => (
+                                            <div
+                                                {...cell.getCellProps()}
+                                                {...(!props.columnsResizable ? { style: { flex: "1 1 0px" } } : {})}
+                                                className="td"
+                                            >
+                                                {children}
+                                            </div>
+                                        ),
+                                        cell.value,
+                                        Number(cell.column.id)
+                                    )
+                                )}
                                 {props.columnsHidable && (
                                     <div className="td column-selector" style={{ width: columnSelectorWidth }} />
                                 )}
